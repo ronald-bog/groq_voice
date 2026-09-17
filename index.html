@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <title>
+        Prueba Groq Voz
+    </title>
+
+    <style>
+
+        body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+        }
+
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #estado {
+            margin-top: 20px;
+        }
+
+        /* ==============================
+           MODAL
+        ============================== */
+
+        .modal {
+            display: none;
+
+            position: fixed;
+
+            inset: 0;
+
+            background: rgba(0, 0, 0, 0.5);
+
+            justify-content: center;
+
+            align-items: center;
+        }
+
+        .modal-contenido {
+
+            background: white;
+
+            padding: 25px;
+
+            border-radius: 10px;
+
+            width: 500px;
+
+            max-width: 90%;
+
+            box-shadow:
+                    0 5px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-contenido h2 {
+            margin-top: 0;
+        }
+
+        pre {
+
+            background: #f4f4f4;
+
+            padding: 15px;
+
+            border-radius: 5px;
+
+            overflow-x: auto;
+        }
+
+        .cerrar {
+
+            float: right;
+
+            font-size: 20px;
+
+            cursor: pointer;
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<h1>
+    Prueba de voz con Groq
+</h1>
+
+
+<button id="btnGrabar">
+    🎤 Comenzar a grabar
+</button>
+
+<p id="estado"></p>
+
+<!-- ==============================
+     MODAL-->
+
+<div id="modal" class="modal">
+    <div class="modal-contenido">
+        <span
+                id="cerrar"
+                class="cerrar"
+        >
+            ×
+        </span>
+
+        <h2>
+            Respuesta del backend
+        </h2>
+
+        <h3>
+            Transcripción
+        </h3>
+
+        <p id="transcripcion"></p>
+
+        <h3>
+            JSON interpretado
+        </h3>
+
+        <pre id="json"></pre>
+
+    </div>
+
+</div>
+
+
+<script>
+    const btnGrabar =
+        document.getElementById("btnGrabar");
+    const estado =
+        document.getElementById("estado");
+    const modal =
+        document.getElementById("modal");
+    const cerrar =
+        document.getElementById("cerrar");
+    const transcripcion =
+        document.getElementById("transcripcion");
+    const json =
+        document.getElementById("json");
+    let recorder;
+
+    let chunks = [];
+
+    /* =================================
+       ABRIR MODAL
+    ================================= */
+    function abrirModal(data) {
+        transcripcion.textContent =
+            data.texto;
+        json.textContent =
+            JSON.stringify(
+                data.resultado,
+                null,
+                4
+            );
+        modal.style.display =
+            "flex";
+    }
+
+
+    /* =================================
+       CERRAR MODAL
+    ================================= */
+
+    cerrar.addEventListener(
+        "click",
+        () => {
+            modal.style.display =
+                "none";
+        }
+    );
+
+    /* =================================
+       GRABAR
+    ================================= */
+
+    btnGrabar.addEventListener(
+        "click",
+        async () => {
+
+            // =================================
+            // COMENZAR
+            // =================================
+
+            if (
+                !recorder ||
+                recorder.state === "inactive"
+            ) {
+                
+                const stream =
+                    await navigator.mediaDevices
+                        .getUserMedia({
+                            audio: true
+                        });
+                
+                recorder =
+                    new MediaRecorder(stream);
+                
+                chunks = [];
+                
+                recorder.ondataavailable =
+                    event => {
+                        chunks.push(
+                            event.data
+                        );
+                    };
+                
+                recorder.onstop =
+                    async () => {
+                        estado.textContent =
+                            "Procesando audio...";
+                        const audio =
+                            new Blob(
+                                chunks,
+                                {
+                                    type:
+                                        "audio/webm"
+                                }
+                            );
+                        
+                        const formData =
+                            new FormData();
+                        formData.append(
+                            "audio",
+                            audio,
+                            "audio.webm"
+                        );
+                        
+                        try {
+                            const response =
+                                await fetch(
+                                    "http://127.0.0.1:8000/api/procesar-voz",
+                                    {
+                                        method:
+                                            "POST",
+                                        body:
+                                        formData
+                                    }
+                                );
+                            const data = await response.json();
+                            if (!response.ok) {
+                                estado.textContent =
+                                    "⚠️ " + data.error;
+                                return;
+
+                            }
+                            console.log(
+                                "Respuesta Node:",
+                                data
+                            );
+                            estado.textContent =
+                                "Proceso terminado";
+                            abrirModal(data);
+                        } catch (error) {
+                            console.error(error);
+                            estado.textContent =
+                                "Error: " +
+                                error.message;
+                        }
+                        stream
+                            .getTracks()
+                            .forEach(
+                                track =>
+                                    track.stop()
+                            );
+
+                    };
+                recorder.start();
+                btnGrabar.textContent =
+                    "⏹️ Detener grabación";
+                estado.textContent =
+                    "🎤 Escuchando...";
+            }
+                // =================================
+                // DETENER
+            // =================================
+
+            else {
+                recorder.stop();
+                btnGrabar.textContent =
+                    "🎤 Comenzar a grabar";
+                estado.textContent =
+                    "⏳ Enviando a Groq...";
+
+            }
+
+        }
+    );
+
+
+</script>
+
+
+</body>
+
+</html>
